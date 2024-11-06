@@ -1,0 +1,49 @@
+default:
+  image: docker:latest
+
+stages:
+  - build
+  - test
+
+.mr_branch_pipeline_rules:
+  rules:
+    - if: '$CI_COMMIT_BRANCH && $CI_PIPELINE_SOURCE == "push" && $CI_OPEN_MERGE_REQUESTS'
+      when: never  # Do not run branch (push) pipelines when an MR is open on the branch.
+    - if: '$CI_COMMIT_TAG'
+      when: never
+    - if: '$CI_COMMIT_BRANCH && $CI_COMMIT_BRANCH != $CI_DEFAULT_BRANCH'
+    - if: '$CI_MERGE_REQUEST_IID'
+
+build app:
+  stage: build
+  rules: !reference [.mr_branch_pipeline_rules, rules]
+  parallel:
+    matrix:
+      - IMAGE: [coding-challenge]
+  services:
+    - docker:dind
+  script:
+    - docker login -u $CI_REGISTRY_USER -p $CI_REGISTRY_PASSWORD $CI_REGISTRY
+    - docker build -t $CI_REGISTRY_IMAGE/${CI_PROJECT_NAME}:${CI_COMMIT_SHORT_SHA}
+        -f _ci/build/coding-challenge/Dockerfile
+        --build-arg APP_NAME=${IMAGE} .
+    - docker push $CI_REGISTRY_IMAGE/${CI_PROJECT_NAME}:${CI_COMMIT_SHORT_SHA}
+
+testing:
+  stage: test
+  image:
+    name: registry.gitlab.com/wallbox/hiring/backend/challenge/acceptance:latest
+    entrypoint: [""]
+  variables:
+    HOST: challenge:80
+  services:
+    - name: ${CI_REGISTRY_IMAGE}/${CI_PROJECT_NAME}:${CI_COMMIT_SHORT_SHA}
+      alias: challenge
+  script:
+    - /script.sh
+  rules:
+    - if: '$CI_COMMIT_BRANCH && $CI_PIPELINE_SOURCE == "push" && $CI_OPEN_MERGE_REQUESTS'
+      when: never # Do not run branch (push) pipelines when an MR is open on the branch.
+    - if: '$CI_COMMIT_TAG'
+      when: never
+    - when: always
